@@ -13,6 +13,11 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum DocumentStatus {
+  PENDING
+  SENT
+}
+
 model Employee {
   id        Int      @id @default(autoincrement())
   name      String
@@ -20,6 +25,9 @@ model Employee {
   hiredAt   DateTime
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  documents              Document[]
+  employeeDocumentTypes  EmployeeDocumentType[]
 
   @@map("employees")
 }
@@ -30,5 +38,37 @@ model DocumentType {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  documents              Document[]
+  employeeDocumentTypes  EmployeeDocumentType[]
+
   @@map("document_types")
+}
+
+model Document {
+  id             Int            @id @default(autoincrement())
+  name           String
+  status         DocumentStatus @default(SENT)
+  employeeId     Int
+  documentTypeId Int
+  sentAt         DateTime       @default(now())
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  documentType DocumentType @relation(fields: [documentTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, documentTypeId])
+  @@map("documents")
+}
+
+model EmployeeDocumentType {
+  employeeId     Int
+  documentTypeId Int
+  createdAt      DateTime @default(now())
+
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  documentType DocumentType @relation(fields: [documentTypeId], references: [id], onDelete: Cascade)
+
+  @@id([employeeId, documentTypeId])
+  @@map("employee_document_types")
 }
