@@ -6,6 +6,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ConfigService } from './config/config.service';
 import { envValidationSchema } from './config/env.validation';
 import { EmployeeModule } from './modules/employee/employee.module';
+import { PrismaModule } from 'prisma/prisma.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { EmployeeModule } from './modules/employee/employee.module';
         abortEarly: true,
       },
     }),
+    PrismaModule,
     EmployeeModule,
   ],
   controllers: [AppController],

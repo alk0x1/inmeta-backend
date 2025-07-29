@@ -1,0 +1,1 @@
+export { Employee, DocumentType, Document, EmployeeDocumentType, DocumentStatus } from '@prisma/client';
