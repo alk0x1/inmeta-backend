@@ -7,6 +7,7 @@ import { ConfigService } from './config/config.service';
 import { envValidationSchema } from './config/env.validation';
 import { EmployeeModule } from './modules/employee/employee.module';
 import { DocumentTypeModule } from './modules/document-type/document-type.module';
+import { DocumentModule } from './modules/document/document.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { DocumentTypeModule } from './modules/document-type/document-type.module
     PrismaModule,
     EmployeeModule,
     DocumentTypeModule,
+    DocumentModule,
   ],
   controllers: [AppController],
   providers: [AppService, ConfigService],
