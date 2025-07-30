@@ -11,13 +11,7 @@ export class DocumentTypeService {
   async create(createDocumentTypeDto: CreateDocumentTypeDto): Promise<DocumentType> {
     const { name } = createDocumentTypeDto;
 
-    const existingDocumentType = await this.prisma.documentType.findUnique({
-      where: { name },
-    });
-
-    if (existingDocumentType) {
-      throw new ConflictException('Document type with this name already exists');
-    }
+    await this.checkNameExists(name);
 
     return this.prisma.documentType.create({
       data: { name },
@@ -46,13 +40,7 @@ export class DocumentTypeService {
     const documentType = await this.findById(id);
 
     if (updateDocumentTypeDto.name && updateDocumentTypeDto.name !== documentType.name) {
-      const existingDocumentType = await this.prisma.documentType.findUnique({
-        where: { name: updateDocumentTypeDto.name },
-      });
-
-      if (existingDocumentType) {
-        throw new ConflictException('Document type with this name already exists');
-      }
+      await this.checkNameExists(updateDocumentTypeDto.name, id);
     }
 
     return this.prisma.documentType.update({
@@ -83,5 +71,19 @@ export class DocumentTypeService {
     await this.prisma.documentType.delete({
       where: { id },
     });
+  }
+
+  private async checkNameExists(name: string, excludeId?: number): Promise<void> {
+    const existingDocumentTypes = await this.prisma.documentType.findMany({
+      where: excludeId ? { id: { not: excludeId } } : {},
+    });
+
+    const nameExists = existingDocumentTypes.some(
+      dt => dt.name.toLowerCase() === name.toLowerCase()
+    );
+
+    if (nameExists) {
+      throw new ConflictException('Document type with this name already exists');
+    }
   }
 }
