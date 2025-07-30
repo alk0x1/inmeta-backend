@@ -8,35 +8,9 @@ export class EmployeeAssociationService {
   constructor(private prisma: PrismaService) {}
 
   async associateDocumentTypes(employeeId: number, dto: AssociateDocumentTypesDto) {
-    const employee = await this.prisma.employee.findUnique({
-      where: { id: employeeId },
-    });
-
-    if (!employee) {
-      throw new NotFoundException('Employee not found');
-    }
-
-    const documentTypes = await this.prisma.documentType.findMany({
-      where: { id: { in: dto.documentTypeIds } },
-    });
-
-    if (documentTypes.length !== dto.documentTypeIds.length) {
-      const foundIds = documentTypes.map(dt => dt.id);
-      const missingIds = dto.documentTypeIds.filter(id => !foundIds.includes(id));
-      throw new NotFoundException(`Document types not found: ${missingIds.join(', ')}`);
-    }
-
-    const existingAssociations = await this.prisma.employeeDocumentType.findMany({
-      where: {
-        employeeId,
-        documentTypeId: { in: dto.documentTypeIds },
-      },
-    });
-
-    if (existingAssociations.length > 0) {
-      const existingIds = existingAssociations.map(assoc => assoc.documentTypeId);
-      throw new ConflictException(`Employee already associated with document types: ${existingIds.join(', ')}`);
-    }
+    await this.validateEmployee(employeeId);
+    await this.validateDocumentTypes(dto.documentTypeIds);
+    await this.checkExistingAssociations(employeeId, dto.documentTypeIds);
 
     const associations = dto.documentTypeIds.map(documentTypeId => ({
       employeeId,
@@ -51,36 +25,9 @@ export class EmployeeAssociationService {
   }
 
   async disassociateDocumentTypes(employeeId: number, dto: AssociateDocumentTypesDto) {
-    const employee = await this.prisma.employee.findUnique({
-      where: { id: employeeId },
-    });
-
-    if (!employee) {
-      throw new NotFoundException('Employee not found');
-    }
-
-    const existingAssociations = await this.prisma.employeeDocumentType.findMany({
-      where: {
-        employeeId,
-        documentTypeId: { in: dto.documentTypeIds },
-      },
-    });
-
-    if (existingAssociations.length === 0) {
-      throw new NotFoundException('No associations found to remove');
-    }
-
-    const submittedDocuments = await this.prisma.document.findMany({
-      where: {
-        employeeId,
-        documentTypeId: { in: dto.documentTypeIds },
-      },
-    });
-
-    if (submittedDocuments.length > 0) {
-      const submittedIds = submittedDocuments.map(doc => doc.documentTypeId);
-      throw new ConflictException(`Cannot disassociate document types with submitted documents: ${submittedIds.join(', ')}`);
-    }
+    await this.validateEmployee(employeeId);
+    await this.validateExistingAssociationsForRemoval(employeeId, dto.documentTypeIds);
+    await this.checkSubmittedDocuments(employeeId, dto.documentTypeIds);
 
     await this.prisma.employeeDocumentType.deleteMany({
       where: {
@@ -93,36 +40,15 @@ export class EmployeeAssociationService {
   }
 
   async bulkAssociateDocumentTypes(dto: BulkAssociationDto) {
+    this.validateBulkRequestUniqueness(dto);
+    
     const results = [];
     const errors = [];
 
     for (const association of dto.associations) {
       try {
-        const employee = await this.prisma.employee.findUnique({
-          where: { id: association.employeeId },
-        });
-
-        if (!employee) {
-          errors.push({
-            employeeId: association.employeeId,
-            error: 'Employee not found',
-          });
-          continue;
-        }
-
-        const documentTypes = await this.prisma.documentType.findMany({
-          where: { id: { in: association.documentTypeIds } },
-        });
-
-        if (documentTypes.length !== association.documentTypeIds.length) {
-          const foundIds = documentTypes.map(dt => dt.id);
-          const missingIds = association.documentTypeIds.filter(id => !foundIds.includes(id));
-          errors.push({
-            employeeId: association.employeeId,
-            error: `Document types not found: ${missingIds.join(', ')}`,
-          });
-          continue;
-        }
+        await this.validateEmployee(association.employeeId);
+        await this.validateDocumentTypes(association.documentTypeIds);
 
         const existingAssociations = await this.prisma.employeeDocumentType.findMany({
           where: {
@@ -139,8 +65,28 @@ export class EmployeeAssociationService {
           errors.push({
             employeeId: association.employeeId,
             error: 'All document types already associated',
+            details: {
+              requestedDocumentTypes: association.documentTypeIds,
+              alreadyAssociated: association.documentTypeIds,
+            },
           });
           continue;
+        }
+
+        if (newDocumentTypeIds.length < association.documentTypeIds.length) {
+          const alreadyAssociated = association.documentTypeIds.filter(
+            id => !newDocumentTypeIds.includes(id)
+          );
+          
+          errors.push({
+            employeeId: association.employeeId,
+            error: `Some document types already associated: ${alreadyAssociated.join(', ')}`,
+            details: {
+              requestedDocumentTypes: association.documentTypeIds,
+              alreadyAssociated,
+              willBeAssociated: newDocumentTypeIds,
+            },
+          });
         }
 
         const newAssociations = newDocumentTypeIds.map(documentTypeId => ({
@@ -150,6 +96,10 @@ export class EmployeeAssociationService {
 
         await this.prisma.employeeDocumentType.createMany({
           data: newAssociations,
+        });
+
+        const employee = await this.prisma.employee.findUnique({
+          where: { id: association.employeeId },
         });
 
         results.push({
@@ -178,59 +128,26 @@ export class EmployeeAssociationService {
   }
 
   async bulkDisassociateDocumentTypes(dto: BulkAssociationDto) {
+    this.validateBulkRequestUniqueness(dto);
+    
     const results = [];
     const errors = [];
 
     for (const association of dto.associations) {
       try {
-        const employee = await this.prisma.employee.findUnique({
-          where: { id: association.employeeId },
-        });
-
-        if (!employee) {
-          errors.push({
-            employeeId: association.employeeId,
-            error: 'Employee not found',
-          });
-          continue;
-        }
-
-        const existingAssociations = await this.prisma.employeeDocumentType.findMany({
-          where: {
-            employeeId: association.employeeId,
-            documentTypeId: { in: association.documentTypeIds },
-          },
-        });
-
-        if (existingAssociations.length === 0) {
-          errors.push({
-            employeeId: association.employeeId,
-            error: 'No associations found to remove',
-          });
-          continue;
-        }
-
-        const submittedDocuments = await this.prisma.document.findMany({
-          where: {
-            employeeId: association.employeeId,
-            documentTypeId: { in: association.documentTypeIds },
-          },
-        });
-
-        if (submittedDocuments.length > 0) {
-          const submittedIds = submittedDocuments.map(doc => doc.documentTypeId);
-          errors.push({
-            employeeId: association.employeeId,
-            error: `Cannot disassociate document types with submitted documents: ${submittedIds.join(', ')}`,
-          });
-          continue;
-        }
+        await this.validateEmployee(association.employeeId);
+        await this.validateExistingAssociationsForRemoval(association.employeeId, association.documentTypeIds);
+        await this.checkSubmittedDocuments(association.employeeId, association.documentTypeIds);
 
         await this.prisma.employeeDocumentType.deleteMany({
           where: {
             employeeId: association.employeeId,
             documentTypeId: { in: association.documentTypeIds },
           },
+        });
+
+        const employee = await this.prisma.employee.findUnique({
+          where: { id: association.employeeId },
         });
 
         results.push({
@@ -288,5 +205,88 @@ export class EmployeeAssociationService {
         associatedAt: assoc.createdAt,
       })),
     };
+  }
+
+  private async validateEmployee(employeeId: number): Promise<void> {
+    const employee = await this.prisma.employee.findUnique({
+      where: { id: employeeId },
+    });
+
+    if (!employee) {
+      throw new NotFoundException(`Employee with ID ${employeeId} not found`);
+    }
+  }
+
+  private async validateDocumentTypes(documentTypeIds: number[]): Promise<void> {
+    const documentTypes = await this.prisma.documentType.findMany({
+      where: { id: { in: documentTypeIds } },
+    });
+
+    if (documentTypes.length !== documentTypeIds.length) {
+      const foundIds = documentTypes.map(dt => dt.id);
+      const missingIds = documentTypeIds.filter(id => !foundIds.includes(id));
+      throw new NotFoundException(`Document types not found: ${missingIds.join(', ')}`);
+    }
+  }
+
+  private async checkExistingAssociations(employeeId: number, documentTypeIds: number[]): Promise<void> {
+    const existingAssociations = await this.prisma.employeeDocumentType.findMany({
+      where: {
+        employeeId,
+        documentTypeId: { in: documentTypeIds },
+      },
+    });
+
+    if (existingAssociations.length > 0) {
+      const existingIds = existingAssociations.map(assoc => assoc.documentTypeId);
+      throw new ConflictException(`Employee already associated with document types: ${existingIds.join(', ')}`);
+    }
+  }
+
+  private async validateExistingAssociationsForRemoval(employeeId: number, documentTypeIds: number[]): Promise<void> {
+    const existingAssociations = await this.prisma.employeeDocumentType.findMany({
+      where: {
+        employeeId,
+        documentTypeId: { in: documentTypeIds },
+      },
+    });
+
+    if (existingAssociations.length === 0) {
+      throw new NotFoundException('No associations found to remove');
+    }
+
+    if (existingAssociations.length !== documentTypeIds.length) {
+      const foundIds = existingAssociations.map(assoc => assoc.documentTypeId);
+      const missingIds = documentTypeIds.filter(id => !foundIds.includes(id));
+      throw new NotFoundException(`No associations found for document types: ${missingIds.join(', ')}`);
+    }
+  }
+
+  private async checkSubmittedDocuments(employeeId: number, documentTypeIds: number[]): Promise<void> {
+    const submittedDocuments = await this.prisma.document.findMany({
+      where: {
+        employeeId,
+        documentTypeId: { in: documentTypeIds },
+      },
+    });
+
+    if (submittedDocuments.length > 0) {
+      const submittedIds = submittedDocuments.map(doc => doc.documentTypeId);
+      throw new ConflictException(`Cannot disassociate document types with submitted documents: ${submittedIds.join(', ')}`);
+    }
+  }
+
+  private validateBulkRequestUniqueness(dto: BulkAssociationDto): void {
+    const seenPairs = new Set<string>();
+    
+    for (const association of dto.associations) {
+      for (const documentTypeId of association.documentTypeIds) {
+        const key = `${association.employeeId}-${documentTypeId}`;
+        if (seenPairs.has(key)) {
+          throw new BadRequestException(`Duplicate association found: Employee ${association.employeeId} with Document Type ${documentTypeId}`);
+        }
+        seenPairs.add(key);
+      }
+    }
   }
 }
