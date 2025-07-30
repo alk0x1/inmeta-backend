@@ -2,11 +2,11 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaModule } from '../prisma/prisma.module';
 import { ConfigService } from './config/config.service';
 import { envValidationSchema } from './config/env.validation';
 import { EmployeeModule } from './modules/employee/employee.module';
-import { PrismaModule } from 'prisma/prisma.module';
+import { DocumentTypeModule } from './modules/document-type/document-type.module';
 
 @Module({
   imports: [
@@ -20,8 +20,9 @@ import { PrismaModule } from 'prisma/prisma.module';
     }),
     PrismaModule,
     EmployeeModule,
+    DocumentTypeModule,
   ],
   controllers: [AppController],
-  providers: [AppService, PrismaService, ConfigService],
+  providers: [AppService, ConfigService],
 })
 export class AppModule {}
