@@ -18,9 +18,26 @@ export class DocumentController {
     return this.documentService.submitDocument(employeeId, createDocumentDto);
   }
 
+  @Put('resubmit/:documentTypeId')
+  resubmitDocument(
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Param('documentTypeId', ParseIntPipe) documentTypeId: number,
+    @Body() createDocumentDto: CreateDocumentDto,
+  ) {
+    return this.documentService.resubmitDocument(employeeId, documentTypeId, createDocumentDto);
+  }
+
   @Get()
   getEmployeeDocuments(@Param('employeeId', ParseIntPipe) employeeId: number) {
     return this.documentService.getEmployeeDocuments(employeeId);
+  }
+
+  @Get('check-duplicate/:documentTypeId')
+  checkDuplicateSubmission(
+    @Param('employeeId', ParseIntPipe) employeeId: number,
+    @Param('documentTypeId', ParseIntPipe) documentTypeId: number,
+  ) {
+    return this.documentService.checkDuplicateSubmission(employeeId, documentTypeId);
   }
 }
 

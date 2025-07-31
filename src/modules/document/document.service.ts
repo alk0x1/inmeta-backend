@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
-import { PrismaService } from '..././../prisma/prisma.service';
+import { PrismaService } from '../../../prisma/prisma.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
 import { UpdateDocumentStatusDto } from './dto/update-document-status.dto';
 import { DocumentFilterDto } from './dto/document-filter.dto';
@@ -16,6 +16,7 @@ export class DocumentService {
     await this.validateDocumentType(documentTypeId);
     await this.validateAssociation(employeeId, documentTypeId);
     await this.checkExistingDocument(employeeId, documentTypeId);
+    await this.validateDocumentName(name, employeeId, documentTypeId);
 
     return this.prisma.document.create({
       data: {
@@ -23,6 +24,54 @@ export class DocumentService {
         employeeId,
         documentTypeId,
         status: DocumentStatus.SENT,
+      },
+      include: {
+        employee: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        documentType: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+    });
+  }
+
+  async resubmitDocument(employeeId: number, documentTypeId: number, createDocumentDto: CreateDocumentDto): Promise<Document> {
+    await this.validateEmployee(employeeId);
+    await this.validateDocumentType(documentTypeId);
+    await this.validateAssociation(employeeId, documentTypeId);
+
+    const existingDocument = await this.prisma.document.findUnique({
+      where: {
+        employeeId_documentTypeId: {
+          employeeId,
+          documentTypeId,
+        },
+      },
+    });
+
+    if (!existingDocument) {
+      throw new NotFoundException('No existing document found to resubmit');
+    }
+
+    if (existingDocument.status === DocumentStatus.SENT) {
+      throw new ConflictException('Cannot resubmit a document that is already sent. Delete the existing document first.');
+    }
+
+    await this.validateDocumentName(createDocumentDto.name, employeeId, documentTypeId, existingDocument.id);
+
+    return this.prisma.document.update({
+      where: { id: existingDocument.id },
+      data: {
+        name: createDocumentDto.name,
+        status: DocumentStatus.SENT,
+        sentAt: new Date(),
       },
       include: {
         employee: {
@@ -237,6 +286,19 @@ export class DocumentService {
     });
   }
 
+  async checkDuplicateSubmission(employeeId: number, documentTypeId: number): Promise<boolean> {
+    const existingDocument = await this.prisma.document.findUnique({
+      where: {
+        employeeId_documentTypeId: {
+          employeeId,
+          documentTypeId,
+        },
+      },
+    });
+
+    return !!existingDocument;
+  }
+
   private async validateEmployee(employeeId: number): Promise<void> {
     const employee = await this.prisma.employee.findUnique({
       where: { id: employeeId },
@@ -285,8 +347,52 @@ export class DocumentService {
     });
 
     if (existingDocument) {
+      const documentType = await this.prisma.documentType.findUnique({
+        where: { id: documentTypeId },
+      });
+
+      throw new ConflictException({
+        message: `Employee has already submitted a document for this document type`,
+        details: {
+          existingDocument: {
+            id: existingDocument.id,
+            name: existingDocument.name,
+            status: existingDocument.status,
+            sentAt: existingDocument.sentAt,
+          },
+          documentType: documentType?.name,
+          suggestion: existingDocument.status === DocumentStatus.PENDING 
+            ? 'You can update the existing pending document or delete it first'
+            : 'Delete the existing document first if you need to submit a new one',
+        },
+      });
+    }
+  }
+
+  private async validateDocumentName(name: string, employeeId: number, documentTypeId: number, excludeDocumentId?: number): Promise<void> {
+    const where: any = {
+      employeeId,
+      name,
+    };
+
+    if (excludeDocumentId) {
+      where.id = { not: excludeDocumentId };
+    }
+
+    const duplicateName = await this.prisma.document.findFirst({
+      where,
+      include: {
+        documentType: {
+          select: {
+            name: true,
+          },
+        },
+      },
+    });
+
+    if (duplicateName) {
       throw new ConflictException(
-        `Employee has already submitted a document for this document type`
+        `A document with the name "${name}" already exists for this employee (${duplicateName.documentType.name})`
       );
     }
   }
