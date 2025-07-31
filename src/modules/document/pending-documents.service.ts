@@ -1,13 +1,30 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { PendingDocumentsFilterDto, PendingDocumentItem, PendingDocumentsResponseDto } from '../employee/dto/pending-documents.dto';
+import { PendingDocumentsFilterDto, PendingDocumentItem, PendingDocumentsResponseDto, PendingDocumentsSortBy, SortOrder } from './dto/pending-documents.dto';
 
 @Injectable()
 export class PendingDocumentsService {
   constructor(private prisma: PrismaService) {}
 
   async getPendingDocuments(filterDto: PendingDocumentsFilterDto): Promise<PendingDocumentsResponseDto> {
-    const { page = 1, limit = 10, employeeId, documentTypeId } = filterDto;
+    const { 
+      page = 1, 
+      limit = 10, 
+      employeeId, 
+      documentTypeId,
+      employeeIds,
+      documentTypeIds,
+      employeeName,
+      documentTypeName,
+      minDaysPending,
+      maxDaysPending,
+      priority,
+      hiredAfter,
+      hiredBefore,
+      sortBy = PendingDocumentsSortBy.PRIORITY,
+      sortOrder = SortOrder.DESC
+    } = filterDto;
+
     const skip = (page - 1) * limit;
 
     const where: any = {};
@@ -16,8 +33,49 @@ export class PendingDocumentsService {
       where.employeeId = employeeId;
     }
     
+    if (employeeIds && employeeIds.length > 0) {
+      where.employeeId = { in: employeeIds };
+    }
+    
     if (documentTypeId) {
       where.documentTypeId = documentTypeId;
+    }
+    
+    if (documentTypeIds && documentTypeIds.length > 0) {
+      where.documentTypeId = { in: documentTypeIds };
+    }
+
+    if (employeeName) {
+      where.employee = {
+        name: {
+          contains: employeeName,
+          mode: 'insensitive',
+        },
+      };
+    }
+
+    if (documentTypeName) {
+      where.documentType = {
+        name: {
+          contains: documentTypeName,
+          mode: 'insensitive',
+        },
+      };
+    }
+
+    if (hiredAfter || hiredBefore) {
+      where.employee = {
+        ...where.employee,
+        hiredAt: {},
+      };
+      
+      if (hiredAfter) {
+        where.employee.hiredAt.gte = new Date(hiredAfter);
+      }
+      
+      if (hiredBefore) {
+        where.employee.hiredAt.lte = new Date(hiredBefore);
+      }
     }
 
     const requiredDocuments = await this.prisma.employeeDocumentType.findMany({
@@ -30,8 +88,8 @@ export class PendingDocumentsService {
 
     const submittedDocuments = await this.prisma.document.findMany({
       where: {
-        employeeId: employeeId || undefined,
-        documentTypeId: documentTypeId || undefined,
+        employeeId: employeeId || (employeeIds?.length ? { in: employeeIds } : undefined),
+        documentTypeId: documentTypeId || (documentTypeIds?.length ? { in: documentTypeIds } : undefined),
       },
       select: {
         employeeId: true,
@@ -43,7 +101,7 @@ export class PendingDocumentsService {
       submittedDocuments.map(doc => `${doc.employeeId}-${doc.documentTypeId}`)
     );
 
-    const pendingDocuments = requiredDocuments
+    let pendingDocuments = requiredDocuments
       .filter(required => 
         !submittedSet.has(`${required.employeeId}-${required.documentTypeId}`)
       )
@@ -63,14 +121,15 @@ export class PendingDocumentsService {
           daysPending,
           priority: this.calculatePriority(daysPending),
         };
-      })
-      .sort((a, b) => {
-        const priorityOrder = { HIGH: 3, MEDIUM: 2, LOW: 1 };
-        if (priorityOrder[a.priority] !== priorityOrder[b.priority]) {
-          return priorityOrder[b.priority] - priorityOrder[a.priority];
-        }
-        return b.daysPending - a.daysPending;
       });
+
+    pendingDocuments = this.applyFilters(pendingDocuments, {
+      minDaysPending,
+      maxDaysPending,
+      priority,
+    });
+
+    pendingDocuments = this.applySorting(pendingDocuments, sortBy, sortOrder);
 
     const total = pendingDocuments.length;
     const totalPages = Math.ceil(total / limit);
@@ -87,6 +146,8 @@ export class PendingDocumentsService {
       low: pendingDocuments.filter(doc => doc.priority === 'LOW').length,
     };
 
+    const appliedFilters = this.getAppliedFilters(filterDto);
+
     return {
       data: paginatedData,
       pagination: {
@@ -101,6 +162,7 @@ export class PendingDocumentsService {
         averageDaysPending,
         priorityBreakdown,
       },
+      appliedFilters,
     };
   }
 
@@ -200,6 +262,79 @@ export class PendingDocumentsService {
       })),
       generatedAt: new Date(),
     };
+  }
+
+  private applyFilters(
+    documents: PendingDocumentItem[], 
+    filters: {
+      minDaysPending?: number;
+      maxDaysPending?: number;
+      priority?: string;
+    }
+  ): PendingDocumentItem[] {
+    let filtered = documents;
+
+    if (filters.minDaysPending !== undefined) {
+      filtered = filtered.filter(doc => doc.daysPending >= filters.minDaysPending);
+    }
+
+    if (filters.maxDaysPending !== undefined) {
+      filtered = filtered.filter(doc => doc.daysPending <= filters.maxDaysPending);
+    }
+
+    if (filters.priority) {
+      filtered = filtered.filter(doc => doc.priority === filters.priority);
+    }
+
+    return filtered;
+  }
+
+  private applySorting(
+    documents: PendingDocumentItem[], 
+    sortBy: PendingDocumentsSortBy, 
+    sortOrder: SortOrder
+  ): PendingDocumentItem[] {
+    return documents.sort((a, b) => {
+      let comparison = 0;
+
+      switch (sortBy) {
+        case PendingDocumentsSortBy.EMPLOYEE_NAME:
+          comparison = a.employeeName.localeCompare(b.employeeName);
+          break;
+        case PendingDocumentsSortBy.DOCUMENT_TYPE:
+          comparison = a.documentTypeName.localeCompare(b.documentTypeName);
+          break;
+        case PendingDocumentsSortBy.DAYS_PENDING:
+          comparison = a.daysPending - b.daysPending;
+          break;
+        case PendingDocumentsSortBy.PRIORITY:
+          const priorityOrder = { HIGH: 3, MEDIUM: 2, LOW: 1 };
+          comparison = priorityOrder[a.priority] - priorityOrder[b.priority];
+          break;
+        case PendingDocumentsSortBy.PENDING_SINCE:
+          comparison = a.pendingSince.getTime() - b.pendingSince.getTime();
+          break;
+        case PendingDocumentsSortBy.HIRED_AT:
+          comparison = a.employeeHiredAt.getTime() - b.employeeHiredAt.getTime();
+          break;
+        default:
+          comparison = 0;
+      }
+
+      return sortOrder === SortOrder.ASC ? comparison : -comparison;
+    });
+  }
+
+  private getAppliedFilters(filterDto: PendingDocumentsFilterDto): { [key: string]: any } {
+    const applied = {};
+    
+    Object.keys(filterDto).forEach(key => {
+      if (filterDto[key] !== undefined && filterDto[key] !== null && key !== 'page' && key !== 'limit') {
+        applied[key] = filterDto[key];
+      }
+    });
+
+    return applied;
   }
 
   private calculatePriority(daysPending: number): 'LOW' | 'MEDIUM' | 'HIGH' {
