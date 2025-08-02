@@ -1,7 +1,7 @@
-import { CreateEmployeeDto } from '../../modules/employee/dto/create-employee.dto';
-import { CreateDocumentTypeDto } from '../../modules/document-type/dto/create-document-type.dto';
-import { CreateDocumentDto } from '../../../src/modules/document/dto/create-document.dto';
-import { TestUtils } from '../../utils/test-utils';
+import { CreateEmployeeDto } from '../../src/modules/employee/dto/create-employee.dto';
+import { CreateDocumentTypeDto } from '../../src/modules/document-type/dto/create-document-type.dto';
+import { CreateDocumentDto } from '../../src/modules/document/dto/create-document.dto';
+import { TestUtils } from '../../src/utils/test-utils';
 
 export class TestFactory {
   static createEmployeeDto(overrides?: Partial<CreateEmployeeDto>): CreateEmployeeDto {
