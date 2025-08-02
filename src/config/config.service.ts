@@ -18,6 +18,22 @@ export class ConfigService {
     return this.configService.get('DATABASE_URL');
   }
 
+  get awsRegion(): string {
+    return this.configService.get('AWS_REGION');
+  }
+
+  get awsAccessKeyId(): string {
+    return this.configService.get('AWS_ACCESS_KEY_ID');
+  }
+
+  get awsSecretAccessKey(): string {
+    return this.configService.get('AWS_SECRET_ACCESS_KEY');
+  }
+
+  get awsS3Bucket(): string {
+    return this.configService.get('AWS_S3_BUCKET');
+  }
+
   get isDevelopment(): boolean {
     return this.nodeEnv === 'development';
   }
@@ -28,5 +44,15 @@ export class ConfigService {
 
   get isTest(): boolean {
     return this.nodeEnv === 'test';
+  }
+
+  get awsConfig() {
+    return {
+      region: this.awsRegion,
+      credentials: {
+        accessKeyId: this.awsAccessKeyId,
+        secretAccessKey: this.awsSecretAccessKey,
+      },
+    };
   }
 }

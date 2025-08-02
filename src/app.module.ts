@@ -4,6 +4,7 @@ import { WinstonModule } from 'nest-winston';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from '../prisma/prisma.module';
+import { AwsModule } from './common/aws/aws.module';
 import { ConfigService } from './config/config.service';
 import { envValidationSchema } from './config/env.validation';
 import { winstonConfig } from './config/winston.config';
@@ -24,6 +25,7 @@ import { AppLoggerService } from './common/services/logger.service';
     }),
     WinstonModule.forRoot(winstonConfig),
     PrismaModule,
+    AwsModule,
     EmployeeModule,
     DocumentTypeModule,
     DocumentModule,
